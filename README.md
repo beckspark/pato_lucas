@@ -21,6 +21,9 @@ uv run pre-commit install
 cd dbt && uv run dbt deps && uv run dbt build
 ```
 
+## dbt docs
+Se puede auto-servir una instancia de los dbt docs en puerto 8081 via `make docs`
+
 ## Superset (exploración BI)
 
 ```bash
