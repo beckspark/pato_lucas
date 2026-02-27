@@ -14,6 +14,11 @@ LANGUAGES = {
     "en": {"flag": "us", "name": "English"},
 }
 
+# Habilitar filtros nativos en dashboards (6.0 no lo activa por defecto)
+FEATURE_FLAGS = {
+    "DASHBOARD_NATIVE_FILTERS": True,
+}
+
 # Metadata en SQLite (default, persistida en superset_home volume)
 SQLALCHEMY_DATABASE_URI = "sqlite:////app/superset_home/superset.db"
 
