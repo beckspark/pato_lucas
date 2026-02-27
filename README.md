@@ -18,8 +18,19 @@ https://drive.google.com/file/d/1ikx-WWrll02h91S6z8vjdSx77R_c4Wbn/view?usp=drive
 ```bash
 uv sync
 uv run pre-commit install
-cd dbt && uv run dbt build
+cd dbt && uv run dbt deps && uv run dbt build
 ```
+
+## Superset (exploración BI)
+
+```bash
+docker compose up -d
+```
+
+Acceder a http://localhost:8089 (usuario: `admin`, contraseña: `admin`).
+
+La conexión a DuckDB (base "SIEEJ") se registra automáticamente al arrancar.
+Las tablas mart están disponibles en SQL Lab bajo el schema `mart`.
 
 ## Fuentes de datos
 
