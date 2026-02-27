@@ -5,7 +5,7 @@ Pipeline de datos que transforma fuentes públicas (INEGI, DOF) en tablas analí
 ## Prerequisitos
 
 - **[uv](https://docs.astral.sh/uv/getting-started/installation/)** — gestor de paquetes Python
-- **[Docker](https://docs.docker.com/get-started/get-docker/)** — para el futuro servicio de Superset (aún no implementado)
+- **[Docker](https://docs.docker.com/get-started/get-docker/)** — para el servicio de Superset
 
 ### Base de datos SIEEJ
 
