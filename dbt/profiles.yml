@@ -1,0 +1,8 @@
+pato_lucas:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "../data/sieej.duckdb"
+      schema: mart
+      threads: 4

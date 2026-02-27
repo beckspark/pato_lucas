@@ -1,0 +1,231 @@
+version: 2
+
+models:
+  # -- Dimensiones --
+  - name: dim_entidades
+    description: "Dimensión de 32 entidades federativas — FK cruzada entre CE, CP y DOF"
+    columns:
+      - name: cve_ent
+        description: "Clave de entidad (2 caracteres, 01-32)"
+        tests:
+          - unique
+          - not_null
+      - name: nombre_entidad
+        description: "Nombre oficial de la entidad"
+        tests:
+          - not_null
+
+  - name: dim_municipios
+    description: "Dimensión de ~2,478 municipios — FK cruzada entre CE y CP"
+    columns:
+      - name: cvegeo
+        description: "Clave geoestadística de 5 caracteres (cve_ent || cve_mun)"
+        tests:
+          - unique
+          - not_null
+      - name: cve_ent
+        description: "Clave de entidad"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_entidades')
+                field: cve_ent
+
+  - name: dim_actividades_economicas
+    description: "Catálogo SCIAN con jerarquía padre para drill-down en BI"
+    columns:
+      - name: codigo
+        description: "Código SCIAN de la actividad"
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_estratos
+    description: "Estratos de tamaño empresarial (6 registros)"
+    columns:
+      - name: id_estrato
+        description: "Clave del estrato"
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_ce_indicadores
+    description: "Diccionario de indicadores del Censo Económico con bandera de indicador clave"
+    columns:
+      - name: nombre_columna
+        description: "Nombre del indicador (minúsculas, coincide con columnas de fct_censo_economico)"
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_cp_indicadores
+    description: "Diccionario de indicadores del Censo de Población"
+    columns:
+      - name: nombre_columna
+        description: "Nombre del indicador (minúsculas, coincide con columnas de fct_censo_poblacion_*)"
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_fondos_federales
+    description: "Dimensión de fondos federales: ramo × anexo × fondo"
+
+  # -- Hechos --
+  - name: fct_censo_economico
+    description: "Censo Económico despivoteado — 15 indicadores clave con columnas legibles para BI. Grano: año × entidad × municipio × actividad × estrato × indicador"
+    columns:
+      - name: indicador
+        description: "Nombre del indicador (ej. ue, h001a, a111a)"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_ce_indicadores')
+                field: nombre_columna
+      - name: descripcion
+        description: "Descripción corta del indicador (ej. 'Producción bruta total')"
+        tests:
+          - not_null
+      - name: unidad
+        description: "Unidad de medida (ej. 'millones de pesos'), NULL para indicadores sin unidad"
+      - name: cve_ent
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_entidades')
+                field: cve_ent
+      - name: nombre_entidad
+        tests:
+          - not_null
+      - name: cve_mun
+        tests:
+          - not_null
+      - name: anio
+        tests:
+          - not_null
+      - name: valor
+        description: "Valor numérico del indicador"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+  - name: fct_censo_poblacion_municipio
+    description: "Censo de Población despivoteado a nivel municipio — 222 indicadores con columnas legibles para BI. Grano: año × entidad × municipio × indicador"
+    columns:
+      - name: indicador
+        description: "Nombre del indicador (ej. pobtot, pobfem, pea)"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_cp_indicadores')
+                field: nombre_columna
+      - name: descripcion
+        description: "Descripción del indicador"
+      - name: cve_ent
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_entidades')
+                field: cve_ent
+      - name: nombre_entidad
+        tests:
+          - not_null
+      - name: cve_mun
+        tests:
+          - not_null
+      - name: anio
+        tests:
+          - not_null
+      - name: valor
+        description: "Valor numérico del indicador"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+  - name: fct_censo_poblacion_entidad
+    description: "Censo de Población despivoteado a nivel entidad — 222 indicadores con columnas legibles para BI. Grano: año × entidad × indicador"
+    columns:
+      - name: indicador
+        description: "Nombre del indicador (ej. pobtot, pobfem, pea)"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_cp_indicadores')
+                field: nombre_columna
+      - name: descripcion
+        description: "Descripción del indicador"
+      - name: cve_ent
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_entidades')
+                field: cve_ent
+      - name: nombre_entidad
+        tests:
+          - not_null
+      - name: anio
+        tests:
+          - not_null
+      - name: valor
+        description: "Valor numérico del indicador"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+  - name: fct_asignaciones_federales
+    description: "Hechos de asignaciones federales DOF — grano: año × ramo × anexo × fondo × entidad"
+    columns:
+      - name: asignacion_sk
+        description: "Clave sustituta"
+        tests:
+          - not_null
+      - name: cve_ent
+        description: "Clave de entidad"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_entidades')
+                field: cve_ent
+
+  - name: fct_dof_asignaciones_mensuales
+    description: "Asignaciones federales despivoteadas por mes — serie de tiempo mensual. Grano: año × ramo × anexo × fondo × entidad × mes"
+    columns:
+      - name: mes_nombre
+        description: "Nombre del mes en español (enero-diciembre)"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+                         'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+      - name: mes_numero
+        description: "Número del mes (1-12) para ordenamiento cronológico"
+        tests:
+          - not_null
+      - name: cve_ent
+        description: "Clave de entidad"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_entidades')
+                field: cve_ent
+      - name: anio
+        tests:
+          - not_null
+      - name: monto
+        description: "Monto asignado para el mes"
+        tests:
+          - not_null:
+              config:
+                severity: warn

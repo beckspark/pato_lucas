@@ -1,0 +1,37 @@
+version: 2
+
+models:
+  - name: int_ce__datos
+    description: "Datos del Censo Económico filtrados a nivel municipio con clave sustituta"
+    columns:
+      - name: censo_economico_sk
+        description: "Clave sustituta: anio × cve_ent × cve_mun × codigo_actividad × id_estrato"
+        tests:
+          - unique
+          - not_null
+
+  - name: int_cp__datos_municipio
+    description: "Datos del Censo de Población a nivel municipio (totales pre-calculados por INEGI)"
+    columns:
+      - name: censo_poblacion_mun_sk
+        description: "Clave sustituta: anio × cve_ent × cve_mun"
+        tests:
+          - unique
+          - not_null
+
+  - name: int_cp__datos_entidad
+    description: "Datos del Censo de Población a nivel entidad (totales pre-calculados por INEGI)"
+    columns:
+      - name: censo_poblacion_ent_sk
+        description: "Clave sustituta: anio × cve_ent"
+        tests:
+          - unique
+          - not_null
+
+  - name: int_dof__asignaciones
+    description: "Asignaciones DOF filtradas: solo entidades válidas, sin totales ni consolidados"
+    columns:
+      - name: asignacion_sk
+        description: "Clave sustituta: anio × ramo × anexo × fondo × cve_ent"
+        tests:
+          - not_null

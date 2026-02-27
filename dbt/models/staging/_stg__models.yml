@@ -1,0 +1,91 @@
+version: 2
+
+models:
+  - name: stg_ce__datos
+    description: "Datos del Censo Económico con nivel geográfico clasificado y 98 indicadores"
+    columns:
+      - name: id_fuente
+        description: "ID original de la tabla fuente"
+      - name: anio
+        description: "Año censal"
+        tests:
+          - not_null
+      - name: nivel_geografico
+        description: "Clasificación: nacional, entidad o municipio"
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["nacional", "entidad", "municipio"]
+
+  - name: stg_ce__actividades
+    description: "Catálogo SCIAN de actividades económicas"
+    columns:
+      - name: codigo
+        description: "Código SCIAN de la actividad"
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_ce__entidades_municipios
+    description: "Catálogo geográfico de entidades y municipios"
+    columns:
+      - name: cvegeo
+        description: "Clave geoestadística de 5 caracteres (cve_ent + cve_mun)"
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_ce__estratos
+    description: "Catálogo de estratos de tamaño empresarial"
+    columns:
+      - name: id_estrato
+        description: "Clave del estrato"
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_ce__diccionarios
+    description: "Diccionario de indicadores del Censo Económico (solo indicadores, sin metadatos)"
+    columns:
+      - name: nombre_columna
+        description: "Nombre del indicador en minúsculas"
+        tests:
+          - not_null
+
+  - name: stg_cp__datos
+    description: "Datos del Censo de Población con nivel geográfico clasificado y ~222 indicadores"
+    columns:
+      - name: id_fuente
+        description: "ID original de la tabla fuente"
+      - name: anio
+        description: "Año censal"
+        tests:
+          - not_null
+      - name: nivel_geografico
+        description: "Clasificación: nacional, entidad, municipio, localidad, ageb o manzana"
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["nacional", "entidad", "municipio", "localidad", "ageb", "manzana"]
+
+  - name: stg_cp__diccionarios
+    description: "Diccionario de indicadores del Censo de Población (solo indicadores, sin metadatos)"
+    columns:
+      - name: nombre_columna
+        description: "Nombre del indicador en minúsculas"
+        tests:
+          - not_null
+
+  - name: stg_dof__asignaciones
+    description: "Asignaciones federales DOF con entidad normalizada a cve_ent"
+    columns:
+      - name: id_fuente
+        description: "ID original de la tabla fuente"
+      - name: anio
+        description: "Año fiscal"
+        tests:
+          - not_null
+      - name: entidad_original
+        description: "Nombre original de la entidad (para auditoría)"
+      - name: cve_ent
+        description: "Clave de entidad normalizada (NULL para filas junk)"

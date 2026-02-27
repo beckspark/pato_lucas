@@ -1,0 +1,25 @@
+[project]
+name = "pato-lucas"
+version = "0.1.0"
+description = "dbt + DuckDB medallion OLAP for Mexican government statistics (SIEEJ)"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "dbt-duckdb>=1.9",
+]
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "basedpyright",
+    "pre-commit",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.basedpyright]
+typeCheckingMode = "basic"

@@ -1,0 +1,20 @@
+name: pato_lucas
+version: "0.1.0"
+config-version: 2
+profile: pato_lucas
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+
+models:
+  pato_lucas:
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+    mart:
+      +schema: mart
+      +materialized: table

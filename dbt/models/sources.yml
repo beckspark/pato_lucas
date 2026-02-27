@@ -1,0 +1,23 @@
+version: 2
+
+sources:
+  - name: sieej
+    description: "Tablas crudas de estadísticas gubernamentales mexicanas cargadas en DuckDB"
+    schema: main
+    tables:
+      - name: ce_datos
+        description: "Microdatos del Censo Económico — tabla ancha con 98 columnas de indicadores por año × entidad × municipio × actividad × estrato"
+      - name: ce_catalogos_actividades
+        description: "Catálogo de actividades económicas SCIAN con jerarquía sector/subsector/rama/subrama/clase"
+      - name: ce_catalogos_entidades_municipios
+        description: "Catálogo geográfico de 32 entidades y ~2,478 municipios con claves cvegeo"
+      - name: ce_catalogos_estratos
+        description: "Catálogo de estratos de tamaño empresarial (6 estratos)"
+      - name: ce_diccionarios_datos
+        description: "Diccionario de datos CE — descripciones de códigos de indicadores por año censal"
+      - name: cp_datos
+        description: "Microdatos del Censo de Población — tabla ancha con ~222 columnas de indicadores a nivel manzana/AGEB/localidad/municipio/entidad"
+      - name: cp_diccionarios_datos
+        description: "Diccionario de datos CP — descripciones de códigos de indicadores"
+      - name: dof_asignaciones
+        description: "Diario Oficial de la Federación — asignaciones de fondos federales por entidad con desgloses mensuales"
