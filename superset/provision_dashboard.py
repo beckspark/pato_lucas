@@ -25,15 +25,16 @@ import requests
 DATASET_NAME = "fct_censo_economico"
 DATASET_SCHEMA = "sieej.mart"
 DASHBOARD_SLUG = "censos-economicos"
-DASHBOARD_TITLE = "Censos Económicos 2024"
+DASHBOARD_TITLE = "Censos Económicos"
 
-BAR_CHART_NAME = "CE 2024 — Municipios por indicador"
-TABLE_CHART_NAME = "CE 2024 — Datos crudos"
-HEADER_CHART_NAME = "CE 2024 — Título dinámico"
-BIG_NUMBER_CHART_NAME = "CE 2024 — Total"
-TREEMAP_CHART_NAME = "CE 2024 — Sectores económicos"
+BAR_CHART_NAME = "CE — Municipios por indicador"
+TABLE_CHART_NAME = "CE — Datos crudos"
+HEADER_CHART_NAME = "CE — Título dinámico"
+BIG_NUMBER_CHART_NAME = "CE — Total"
+TREEMAP_CHART_NAME = "CE — Sectores económicos"
 
 ALL_COLUMNS = [
+    "anio",
     "nombre_entidad",
     "nombre_municipio",
     "indicador",
@@ -231,7 +232,7 @@ def _header_params(dataset_id: int) -> dict[str, Any]:
     # el resultado con un template — a diferencia de markdown que es estatico.
     template = (
         '<div style="padding:4px 0">'
-        '<h2 style="margin:0">Censos Económicos 2024</h2>'
+        '<h2 style="margin:0">Censos Económicos</h2>'
         '<h3 style="margin:0;color:#aaa">'
         "{{#with (lookup data 0)}}{{nombre_entidad}}{{/with}}"
         " · "
@@ -416,7 +417,8 @@ def _stable_filter_id(name: str) -> str:
 
 
 def _build_native_filters(dataset_id: int) -> list[dict[str, Any]]:
-    """Construye la configuracion de los 4 filtros nativos."""
+    """Construye la configuracion de los 5 filtros nativos."""
+    f_anio_id = _stable_filter_id("anio")
     f_estado_id = _stable_filter_id("estado")
     f_indicador_id = _stable_filter_id("indicador")
     f_estrato_id = _stable_filter_id("estrato")
@@ -431,7 +433,7 @@ def _build_native_filters(dataset_id: int) -> list[dict[str, Any]]:
         cascade_from: str | list[str] | None = None,
         enable_empty: bool = False,
         search_all: bool = True,
-        default_value: str | None = None,
+        default_values: list[Any] | None = None,
     ) -> dict[str, Any]:
         if isinstance(cascade_from, list):
             parent_ids = cascade_from
@@ -457,27 +459,28 @@ def _build_native_filters(dataset_id: int) -> list[dict[str, Any]]:
                 "inverseSelection": False,
             },
         }
-        if default_value is not None:
+        if default_values is not None:
             f["defaultDataMask"] = {
-                "filterState": {"value": [default_value]},
+                "filterState": {"value": default_values},
                 "extraFormData": {
-                    "filters": [{"col": column, "op": "IN", "val": [default_value]}],
+                    "filters": [{"col": column, "op": "IN", "val": default_values}],
                 },
                 "ownState": {},
             }
         return f
 
-    # Cascada: Estado → Indicador → Estrato → Municipio
+    # Cascada: Año (top-level), Estado (top-level) → Indicador → Estrato → Municipio
     # Municipio necesita Estado como padre directo porque las cascadas NO son transitivas.
     filters = [
-        _filter(f_estado_id, "Estado", "nombre_entidad", default_value="Jalisco"),
+        _filter(f_anio_id, "Año", "anio", multi=True, default_values=[2024]),
+        _filter(f_estado_id, "Estado", "nombre_entidad", default_values=["Jalisco"]),
         _filter(
             f_indicador_id,
             "Indicador",
             "descripcion",
             multi=True,
             cascade_from=f_estado_id,
-            default_value="Personal ocupado total",
+            default_values=["Personal ocupado total"],
         ),
         _filter(
             f_estrato_id,
