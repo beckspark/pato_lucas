@@ -20,8 +20,9 @@ superset init
 # Registrar conexion DuckDB (idempotente)
 python /app/registrar_duckdb.py
 
-# Provisionar dashboard en background (espera a que la API este lista)
+# Provisionar dashboards en background (espera a que la API este lista)
 python /app/provision_dashboard.py &
+python /app/provision_dof_dashboard.py &
 
 # Arrancar servidor
 exec gunicorn \

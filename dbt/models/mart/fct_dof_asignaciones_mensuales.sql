@@ -28,9 +28,11 @@ with
 select
     d.anio,
     d.cve_ent,
+    e.nombre_entidad,
     d.ramo,
     d.anexo,
     d.fondo,
+    ff.tipo_ramo,
     d.mes_nombre,
     -- Número de mes para ordenar cronológicamente
     case
@@ -62,4 +64,10 @@ select
     end as mes_numero,
     d.monto
 from despivoteado as d
+left join {{ ref("dim_entidades") }} as e on d.cve_ent = e.cve_ent
+left join
+    {{ ref("dim_fondos_federales") }} as ff
+    on d.ramo = ff.ramo
+    and d.anexo = ff.anexo
+    and d.fondo = ff.fondo
 order by d.anio, d.cve_ent, d.ramo, mes_numero

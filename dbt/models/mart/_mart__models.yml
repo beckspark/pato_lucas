@@ -235,6 +235,16 @@ models:
               arguments:
                 to: ref('dim_entidades')
                 field: cve_ent
+      - name: nombre_entidad
+        description: "Nombre de la entidad federativa (via dim_entidades)"
+        tests:
+          - not_null
+      - name: tipo_ramo
+        description: "Tipo de ramo presupuestal (via dim_fondos_federales)"
+        tests:
+          - not_null:
+              config:
+                severity: warn
       - name: anio
         tests:
           - not_null

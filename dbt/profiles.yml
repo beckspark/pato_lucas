@@ -5,4 +5,4 @@ pato_lucas:
       type: duckdb
       path: "../data/sieej.duckdb"
       schema: mart
-      threads: 4
+      threads: 1  # dbt-duckdb#660: concurrency bug con __dbt_backup tables
