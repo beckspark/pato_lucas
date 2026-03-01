@@ -3,6 +3,10 @@
 
 Idempotente — seguro de ejecutar multiples veces. Verifica recursos existentes antes de crear.
 
+Arquitectura "switchboard": los 98 indicadores permanecen pivotados en DuckDB.
+Un virtual dataset SQL con UNPIVOT + COLUMNS(* EXCLUDE) despivotea todos los
+indicadores; un JOIN a dim_ce_indicadores provee nombres legibles para el filtro.
+
 Disenado para ejecutarse como proceso background dentro del contenedor,
 esperando a que la API este lista antes de provisionar.
 """
@@ -22,29 +26,67 @@ import requests
 # Constantes
 # ---------------------------------------------------------------------------
 
-DATASET_NAME = "fct_censo_economico"
+# Datasets
 DATASET_SCHEMA = "sieej.mart"
+DATASET_VIRTUAL_NAME = "ce_switchboard"
+
 DASHBOARD_SLUG = "censos-economicos"
-DASHBOARD_TITLE = "Censos Económicos"
+DASHBOARD_TITLE = "Censos Economicos"
 
-BAR_CHART_NAME = "CE — Municipios por indicador"
-TABLE_CHART_NAME = "CE — Datos crudos"
-HEADER_CHART_NAME = "CE — Título dinámico"
-BIG_NUMBER_CHART_NAME = "CE — Total"
-TREEMAP_CHART_NAME = "CE — Sectores económicos"
+# Nombres de charts
+HEADER_CHART_NAME = "CE -- Titulo dinamico"
+BIG_NUMBER_CHART_NAME = "CE -- Total"
+TREEMAP_CHART_NAME = "CE -- Sectores economicos"
+SUMMARY_TABLE_CHART_NAME = "CE -- Resumen sectorial"
+DETAIL_TABLE_CHART_NAME = "CE -- Detalle SCIAN"
+BAR_CHART_NAME = "CE -- Municipios por indicador"
 
-ALL_COLUMNS = [
-    "anio",
-    "nombre_entidad",
-    "nombre_municipio",
-    "indicador",
-    "descripcion",
-    "descripcion_actividad",
-    "clasificador_actividad",
-    "descripcion_estrato",
-    "unidad",
-    "valor",
-]
+# SQL del virtual dataset ce_switchboard.
+# UNPIVOT de todos los indicadores con COLUMNS(* EXCLUDE) — sin Jinja ni dict.
+# La cross-referencia a dim_ce_indicadores provee descripcion_corta legible;
+# el filtro nativo de Superset aplica WHERE descripcion_corta IN (...) directamente.
+SWITCHBOARD_SQL = """\
+SELECT
+    f.anio,
+    f.nivel_geografico,
+    f.cve_ent,
+    e.nombre_entidad,
+    f.cve_mun,
+    m.nombre_municipio,
+    f.codigo_actividad,
+    s.descripcion AS descripcion_actividad,
+    CASE f.nivel_scian
+        WHEN 'sector' THEN '1. Sector'
+        WHEN 'subsector' THEN '2. Subsector'
+        WHEN 'rama' THEN '3. Rama'
+        WHEN 'subrama' THEN '4. Subrama'
+        WHEN 'clase' THEN '5. Clase'
+    END AS nivel_scian,
+    f.codigo_sector,
+    sec.descripcion AS descripcion_sector,
+    ind.descripcion_corta,
+    ind.unidad AS unidad_indicador,
+    f.indicador_col AS indicador,
+    f.valor
+FROM (
+    SELECT *
+    FROM sieej.mart.fct_censo_economico
+    UNPIVOT (
+        valor FOR indicador_col IN (
+            COLUMNS(* EXCLUDE (
+                censo_economico_sk, anio, nivel_geografico, cve_ent, cve_mun,
+                codigo_actividad, id_estrato, nivel_scian, codigo_sector,
+                codigo_subsector, codigo_rama, codigo_subrama
+            ))
+        )
+    )
+) AS f
+LEFT JOIN sieej.mart.dim_entidades AS e ON f.cve_ent = e.cve_ent
+LEFT JOIN sieej.mart.dim_municipios AS m ON (f.cve_ent || f.cve_mun) = m.cvegeo
+LEFT JOIN sieej.mart.dim_scian AS s ON f.codigo_actividad = s.codigo
+LEFT JOIN sieej.mart.dim_scian AS sec ON f.codigo_sector = sec.codigo AND sec.nivel = 'sector'
+LEFT JOIN sieej.mart.dim_ce_indicadores AS ind ON f.indicador_col = ind.nombre_columna
+"""
 
 BASE_URL = "http://localhost:8088"
 MAX_INTENTOS = 30
@@ -168,26 +210,32 @@ def find_existing(client: SupersetClient, endpoint: str, filter_col: str, filter
 
 
 # ---------------------------------------------------------------------------
-# Dataset (tabla fisica — sin SQL virtual)
+# Datasets
 # ---------------------------------------------------------------------------
 
 
-def create_dataset(client: SupersetClient, db_id: int) -> int:
-    existing = find_existing(client, "/api/v1/dataset/", "table_name", DATASET_NAME)
+def create_virtual_dataset(client: SupersetClient, db_id: int) -> int:
+    """Crea el virtual dataset ce_switchboard (UNPIVOT + JOINs a dimensiones)."""
+    existing = find_existing(client, "/api/v1/dataset/", "table_name", DATASET_VIRTUAL_NAME)
     if existing:
-        print(f"    Dataset '{DATASET_NAME}' ya existe (id={existing}). Omitiendo.")
+        print(f"    Dataset '{DATASET_VIRTUAL_NAME}' ya existe (id={existing}). Actualizando SQL...")
+        client.put(
+            f"/api/v1/dataset/{existing}",
+            json={"sql": SWITCHBOARD_SQL, "is_managed_externally": False},
+        )
         return existing
 
     resp = client.post(
         "/api/v1/dataset/",
         json={
             "database": db_id,
-            "table_name": DATASET_NAME,
+            "table_name": DATASET_VIRTUAL_NAME,
             "schema": DATASET_SCHEMA,
+            "sql": SWITCHBOARD_SQL,
         },
     )
     ds_id: int = resp.json()["id"]
-    print(f"    Dataset '{DATASET_NAME}' creado (id={ds_id}).")
+    print(f"    Dataset '{DATASET_VIRTUAL_NAME}' creado (id={ds_id}).")
     return ds_id
 
 
@@ -206,45 +254,61 @@ def _metric_sum_valor() -> dict[str, Any]:
     }
 
 
-def create_header_chart(client: SupersetClient, dataset_id: int) -> int:
-    existing = find_existing(client, "/api/v1/chart/", "slice_name", HEADER_CHART_NAME)
-    params = _header_params(dataset_id)
+def _adhoc_filter_nivel_scian_sector() -> dict[str, Any]:
+    """Filtro adhoc fijo: nivel_scian = '1. Sector'."""
+    return {
+        "expressionType": "SIMPLE",
+        "clause": "WHERE",
+        "subject": "nivel_scian",
+        "operator": "==",
+        "comparator": "1. Sector",
+        "filterOptionName": f"filter_{uuid.uuid4().hex[:8]}",
+    }
+
+
+def _upsert_chart(
+    client: SupersetClient,
+    name: str,
+    dataset_id: int,
+    viz_type: str,
+    params: dict[str, Any],
+) -> int:
+    """Crea o actualiza un chart por nombre."""
+    existing = find_existing(client, "/api/v1/chart/", "slice_name", name)
     payload = {
-        "slice_name": HEADER_CHART_NAME,
+        "slice_name": name,
         "datasource_id": dataset_id,
         "datasource_type": "table",
-        "viz_type": "handlebars",
+        "viz_type": viz_type,
         "params": json.dumps(params),
     }
     if existing:
-        print(f"    Chart '{HEADER_CHART_NAME}' ya existe (id={existing}). Actualizando...")
+        print(f"    Chart '{name}' ya existe (id={existing}). Actualizando...")
         client.put(f"/api/v1/chart/{existing}", json=payload)
         return existing
 
     resp = client.post("/api/v1/chart/", json=payload)
     chart_id: int = resp.json()["id"]
-    print(f"    Chart '{HEADER_CHART_NAME}' creado (id={chart_id}).")
+    print(f"    Chart '{name}' creado (id={chart_id}).")
     return chart_id
 
 
-def _header_params(dataset_id: int) -> dict[str, Any]:
-    # Handlebars consulta el dataset (los filtros nativos aplican) y renderiza
-    # el resultado con un template — a diferencia de markdown que es estatico.
+def create_header_chart(client: SupersetClient, dataset_id: int) -> int:
     template = (
         '<div style="padding:4px 0">'
-        '<h2 style="margin:0">Censos Económicos</h2>'
+        '<h2 style="margin:0">Censos Economicos</h2>'
         '<h3 style="margin:0;color:#aaa">'
         "{{#with (lookup data 0)}}{{nombre_entidad}}{{/with}}"
-        " · "
-        "{{#each data}}{{#unless @first}}, {{/unless}}{{descripcion}}{{/each}}"
+        " -- "
+        "{{#each data}}{{#unless @first}}, {{/unless}}{{descripcion_corta}}{{/each}}"
         "</h3>"
         "</div>"
     )
-    return {
+    params = {
         "datasource": f"{dataset_id}__table",
         "viz_type": "handlebars",
         "query_mode": "aggregate",
-        "groupby": ["nombre_entidad", "descripcion"],
+        "groupby": ["nombre_entidad", "descripcion_corta"],
         "metrics": [],
         "row_limit": 50,
         "order_desc": True,
@@ -252,33 +316,11 @@ def _header_params(dataset_id: int) -> dict[str, Any]:
         "styleTemplate": "",
         "adhoc_filters": [],
     }
+    return _upsert_chart(client, HEADER_CHART_NAME, dataset_id, "handlebars", params)
 
 
 def create_big_number_chart(client: SupersetClient, dataset_id: int) -> int:
-    existing = find_existing(client, "/api/v1/chart/", "slice_name", BIG_NUMBER_CHART_NAME)
-    params = _big_number_params(dataset_id)
-    if existing:
-        print(f"    Chart '{BIG_NUMBER_CHART_NAME}' ya existe (id={existing}). Actualizando...")
-        client.put(f"/api/v1/chart/{existing}", json={"params": json.dumps(params)})
-        return existing
-
-    resp = client.post(
-        "/api/v1/chart/",
-        json={
-            "slice_name": BIG_NUMBER_CHART_NAME,
-            "datasource_id": dataset_id,
-            "datasource_type": "table",
-            "viz_type": "big_number_total",
-            "params": json.dumps(params),
-        },
-    )
-    chart_id: int = resp.json()["id"]
-    print(f"    Chart '{BIG_NUMBER_CHART_NAME}' creado (id={chart_id}).")
-    return chart_id
-
-
-def _big_number_params(dataset_id: int) -> dict[str, Any]:
-    return {
+    params = {
         "datasource": f"{dataset_id}__table",
         "viz_type": "big_number_total",
         "metric": _metric_sum_valor(),
@@ -286,52 +328,62 @@ def _big_number_params(dataset_id: int) -> dict[str, Any]:
         "subtitle": "valor total",
         "adhoc_filters": [],
     }
+    return _upsert_chart(client, BIG_NUMBER_CHART_NAME, dataset_id, "big_number_total", params)
 
 
 def create_treemap_chart(client: SupersetClient, dataset_id: int) -> int:
-    existing = find_existing(client, "/api/v1/chart/", "slice_name", TREEMAP_CHART_NAME)
-    params = _treemap_params(dataset_id)
-    if existing:
-        print(f"    Chart '{TREEMAP_CHART_NAME}' ya existe (id={existing}). Actualizando...")
-        client.put(f"/api/v1/chart/{existing}", json={"params": json.dumps(params)})
-        return existing
-
-    resp = client.post(
-        "/api/v1/chart/",
-        json={
-            "slice_name": TREEMAP_CHART_NAME,
-            "datasource_id": dataset_id,
-            "datasource_type": "table",
-            "viz_type": "treemap_v2",
-            "params": json.dumps(params),
-        },
-    )
-    chart_id: int = resp.json()["id"]
-    print(f"    Chart '{TREEMAP_CHART_NAME}' creado (id={chart_id}).")
-    return chart_id
-
-
-def _treemap_params(dataset_id: int) -> dict[str, Any]:
-    return {
+    params = {
         "datasource": f"{dataset_id}__table",
         "viz_type": "treemap_v2",
-        "groupby": ["descripcion_actividad"],
+        "groupby": ["descripcion_sector"],
         "metric": _metric_sum_valor(),
         "show_labels": True,
         "show_upper_labels": True,
         "number_format": "SMART_NUMBER",
         "row_limit": 50,
         "color_scheme": "supersetColors",
+        "adhoc_filters": [_adhoc_filter_nivel_scian_sector()],
+    }
+    return _upsert_chart(client, TREEMAP_CHART_NAME, dataset_id, "treemap_v2", params)
+
+
+def create_summary_table_chart(client: SupersetClient, dataset_id: int) -> int:
+    """Tabla de resumen sectorial — siempre a nivel sector (incluye valores enmascarados)."""
+    params = {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "table",
+        "query_mode": "aggregate",
+        "groupby": ["descripcion_sector", "descripcion_corta"],
+        "metrics": [_metric_sum_valor()],
+        "row_limit": 1000,
+        "server_pagination": True,
+        "server_page_length": 100,
+        "order_desc": True,
+        "include_search": True,
+        "adhoc_filters": [_adhoc_filter_nivel_scian_sector()],
+    }
+    return _upsert_chart(client, SUMMARY_TABLE_CHART_NAME, dataset_id, "table", params)
+
+
+def create_detail_table_chart(client: SupersetClient, dataset_id: int) -> int:
+    """Tabla de detalle SCIAN — respeta el filtro de nivel SCIAN del dashboard."""
+    params = {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": "table",
+        "query_mode": "aggregate",
+        "groupby": ["descripcion_actividad", "descripcion_corta"],
+        "metrics": [_metric_sum_valor()],
+        "row_limit": 1000,
+        "server_pagination": True,
+        "server_page_length": 100,
+        "order_desc": True,
+        "include_search": True,
         "adhoc_filters": [],
     }
+    return _upsert_chart(client, DETAIL_TABLE_CHART_NAME, dataset_id, "table", params)
 
 
 def create_bar_chart(client: SupersetClient, dataset_id: int) -> int:
-    existing = find_existing(client, "/api/v1/chart/", "slice_name", BAR_CHART_NAME)
-    if existing:
-        print(f"    Chart '{BAR_CHART_NAME}' ya existe (id={existing}). Omitiendo.")
-        return existing
-
     viz = "echarts_timeseries_bar"
     params = {
         "datasource": f"{dataset_id}__table",
@@ -355,54 +407,7 @@ def create_bar_chart(client: SupersetClient, dataset_id: int) -> int:
         "orientation": "vertical",
         "adhoc_filters": [],
     }
-
-    resp = client.post(
-        "/api/v1/chart/",
-        json={
-            "slice_name": BAR_CHART_NAME,
-            "datasource_id": dataset_id,
-            "datasource_type": "table",
-            "viz_type": viz,
-            "params": json.dumps(params),
-        },
-    )
-    chart_id: int = resp.json()["id"]
-    print(f"    Chart '{BAR_CHART_NAME}' creado (id={chart_id}).")
-    return chart_id
-
-
-def create_table_chart(client: SupersetClient, dataset_id: int) -> int:
-    existing = find_existing(client, "/api/v1/chart/", "slice_name", TABLE_CHART_NAME)
-    if existing:
-        print(f"    Chart '{TABLE_CHART_NAME}' ya existe (id={existing}). Omitiendo.")
-        return existing
-
-    params = {
-        "datasource": f"{dataset_id}__table",
-        "viz_type": "table",
-        "query_mode": "raw",
-        "all_columns": ALL_COLUMNS,
-        "row_limit": 1000,
-        "server_pagination": True,
-        "server_page_length": 100,
-        "include_search": True,
-        "order_desc": True,
-        "adhoc_filters": [],
-    }
-
-    resp = client.post(
-        "/api/v1/chart/",
-        json={
-            "slice_name": TABLE_CHART_NAME,
-            "datasource_id": dataset_id,
-            "datasource_type": "table",
-            "viz_type": "table",
-            "params": json.dumps(params),
-        },
-    )
-    chart_id: int = resp.json()["id"]
-    print(f"    Chart '{TABLE_CHART_NAME}' creado (id={chart_id}).")
-    return chart_id
+    return _upsert_chart(client, BAR_CHART_NAME, dataset_id, viz, params)
 
 
 # ---------------------------------------------------------------------------
@@ -416,18 +421,23 @@ def _stable_filter_id(name: str) -> str:
     return f"NATIVE_FILTER-{raw}"
 
 
-def _build_native_filters(dataset_id: int) -> list[dict[str, Any]]:
-    """Construye la configuracion de los 5 filtros nativos."""
+def _build_native_filters(
+    switchboard_ds_id: int,
+) -> list[dict[str, Any]]:
+    """Construye la configuracion de los 7 filtros nativos (sin estrato)."""
     f_anio_id = _stable_filter_id("anio")
+    f_nivel_geo_id = _stable_filter_id("nivel_geografico")
     f_estado_id = _stable_filter_id("estado")
     f_indicador_id = _stable_filter_id("indicador")
-    f_estrato_id = _stable_filter_id("estrato")
+    f_nivel_scian_id = _stable_filter_id("nivel_scian")
     f_mun_id = _stable_filter_id("municipio")
+    f_sector_id = _stable_filter_id("sector")
 
     def _filter(
         fid: str,
         name: str,
         column: str,
+        dataset_id: int,
         *,
         multi: bool = False,
         cascade_from: str | list[str] | None = None,
@@ -469,55 +479,91 @@ def _build_native_filters(dataset_id: int) -> list[dict[str, Any]]:
             }
         return f
 
-    # Cascada: Año (top-level), Estado (top-level) → Indicador → Estrato → Municipio
-    # Municipio necesita Estado como padre directo porque las cascadas NO son transitivas.
     filters = [
-        _filter(f_anio_id, "Año", "anio", multi=True, default_values=[2024]),
-        _filter(f_estado_id, "Estado", "nombre_entidad", default_values=["Jalisco"]),
+        # 1. Anio
+        _filter(
+            f_anio_id,
+            "Anio",
+            "anio",
+            switchboard_ds_id,
+            multi=True,
+            default_values=[2024],
+        ),
+        # 2. Nivel Geografico
+        _filter(
+            f_nivel_geo_id,
+            "Nivel Geografico",
+            "nivel_geografico",
+            switchboard_ds_id,
+            default_values=["municipio"],
+        ),
+        # 3. Estado (cascada desde Nivel Geografico)
+        _filter(
+            f_estado_id,
+            "Estado",
+            "nombre_entidad",
+            switchboard_ds_id,
+            cascade_from=f_nivel_geo_id,
+            default_values=["Jalisco"],
+        ),
+        # 4. Indicador (descripcion legible via cross-ref a dim_ce_indicadores)
         _filter(
             f_indicador_id,
             "Indicador",
-            "descripcion",
+            "descripcion_corta",
+            switchboard_ds_id,
             multi=True,
-            cascade_from=f_estado_id,
-            default_values=["Personal ocupado total"],
+            default_values=["Clave de la unidad económica"],
         ),
+        # 5. Nivel SCIAN (valores con prefijo numerico para orden correcto)
         _filter(
-            f_estrato_id,
-            "Estrato",
-            "descripcion_estrato",
-            search_all=False,
-            cascade_from=f_indicador_id,
+            f_nivel_scian_id,
+            "Nivel SCIAN",
+            "nivel_scian",
+            switchboard_ds_id,
+            default_values=["1. Sector"],
         ),
+        # 6. Municipio (cascada desde Estado)
         _filter(
             f_mun_id,
             "Municipio",
             "nombre_municipio",
+            switchboard_ds_id,
             multi=True,
-            cascade_from=[f_estado_id, f_estrato_id],
+            cascade_from=f_estado_id,
+        ),
+        # 7. Sector
+        _filter(
+            f_sector_id,
+            "Sector",
+            "descripcion_sector",
+            switchboard_ds_id,
+            multi=True,
         ),
     ]
     return filters
 
 
 def _build_position_json(
-    header_chart_id: int,
-    big_number_chart_id: int,
-    treemap_chart_id: int,
-    bar_chart_id: int,
-    table_chart_id: int,
+    header_id: int,
+    big_number_id: int,
+    treemap_id: int,
+    summary_table_id: int,
+    detail_table_id: int,
+    bar_id: int,
 ) -> dict[str, Any]:
     """Construye el JSON de posiciones del layout del dashboard."""
-    header_key = f"CHART-header-{header_chart_id}"
-    big_number_key = f"CHART-bignumber-{big_number_chart_id}"
-    treemap_key = f"CHART-treemap-{treemap_chart_id}"
-    bar_key = f"CHART-bar-{bar_chart_id}"
-    table_key = f"CHART-table-{table_chart_id}"
+    header_key = f"CHART-header-{header_id}"
+    big_number_key = f"CHART-bignumber-{big_number_id}"
+    treemap_key = f"CHART-treemap-{treemap_id}"
+    summary_key = f"CHART-summary-{summary_table_id}"
+    detail_key = f"CHART-detail-{detail_table_id}"
+    bar_key = f"CHART-bar-{bar_id}"
     row0_key = "ROW-header-row"
-    row1_key = "ROW-bignumber-row"
-    row2_key = "ROW-treemap-row"
-    row3_key = "ROW-bar-row"
-    row4_key = "ROW-table-row"
+    row1_key = "ROW-bignumber-treemap-row"
+    row2_key = "ROW-summary-row"
+    row3_key = "ROW-detail-row"
+    row4_key = "ROW-bar-row"
 
     return {
         "DASHBOARD_VERSION_KEY": "v2",
@@ -529,6 +575,7 @@ def _build_position_json(
             "parents": ["ROOT_ID"],
         },
         "HEADER_ID": {"id": "HEADER_ID", "type": "HEADER", "meta": {"text": DASHBOARD_TITLE}},
+        # Fila 0: Titulo dinamico
         row0_key: {
             "type": "ROW",
             "id": row0_key,
@@ -544,14 +591,15 @@ def _build_position_json(
             "meta": {
                 "width": 12,
                 "height": 8,
-                "chartId": header_chart_id,
+                "chartId": header_id,
                 "sliceName": HEADER_CHART_NAME,
             },
         },
+        # Fila 1: Big Number + Treemap lado a lado
         row1_key: {
             "type": "ROW",
             "id": row1_key,
-            "children": [big_number_key],
+            "children": [big_number_key, treemap_key],
             "parents": ["ROOT_ID", "GRID_ID"],
             "meta": {"background": "BACKGROUND_TRANSPARENT"},
         },
@@ -561,34 +609,68 @@ def _build_position_json(
             "children": [],
             "parents": ["ROOT_ID", "GRID_ID", row1_key],
             "meta": {
-                "width": 12,
-                "height": 10,
-                "chartId": big_number_chart_id,
+                "width": 3,
+                "height": 30,
+                "chartId": big_number_id,
                 "sliceName": BIG_NUMBER_CHART_NAME,
             },
-        },
-        row2_key: {
-            "type": "ROW",
-            "id": row2_key,
-            "children": [treemap_key],
-            "parents": ["ROOT_ID", "GRID_ID"],
-            "meta": {"background": "BACKGROUND_TRANSPARENT"},
         },
         treemap_key: {
             "type": "CHART",
             "id": treemap_key,
             "children": [],
+            "parents": ["ROOT_ID", "GRID_ID", row1_key],
+            "meta": {
+                "width": 9,
+                "height": 30,
+                "chartId": treemap_id,
+                "sliceName": TREEMAP_CHART_NAME,
+            },
+        },
+        # Fila 2: Resumen sectorial
+        row2_key: {
+            "type": "ROW",
+            "id": row2_key,
+            "children": [summary_key],
+            "parents": ["ROOT_ID", "GRID_ID"],
+            "meta": {"background": "BACKGROUND_TRANSPARENT"},
+        },
+        summary_key: {
+            "type": "CHART",
+            "id": summary_key,
+            "children": [],
             "parents": ["ROOT_ID", "GRID_ID", row2_key],
             "meta": {
                 "width": 12,
                 "height": 40,
-                "chartId": treemap_chart_id,
-                "sliceName": TREEMAP_CHART_NAME,
+                "chartId": summary_table_id,
+                "sliceName": SUMMARY_TABLE_CHART_NAME,
             },
         },
+        # Fila 3: Detalle SCIAN
         row3_key: {
             "type": "ROW",
             "id": row3_key,
+            "children": [detail_key],
+            "parents": ["ROOT_ID", "GRID_ID"],
+            "meta": {"background": "BACKGROUND_TRANSPARENT"},
+        },
+        detail_key: {
+            "type": "CHART",
+            "id": detail_key,
+            "children": [],
+            "parents": ["ROOT_ID", "GRID_ID", row3_key],
+            "meta": {
+                "width": 12,
+                "height": 50,
+                "chartId": detail_table_id,
+                "sliceName": DETAIL_TABLE_CHART_NAME,
+            },
+        },
+        # Fila 4: Barras de municipios
+        row4_key: {
+            "type": "ROW",
+            "id": row4_key,
             "children": [bar_key],
             "parents": ["ROOT_ID", "GRID_ID"],
             "meta": {"background": "BACKGROUND_TRANSPARENT"},
@@ -597,51 +679,61 @@ def _build_position_json(
             "type": "CHART",
             "id": bar_key,
             "children": [],
-            "parents": ["ROOT_ID", "GRID_ID", row3_key],
-            "meta": {
-                "width": 12,
-                "height": 50,
-                "chartId": bar_chart_id,
-                "sliceName": BAR_CHART_NAME,
-            },
-        },
-        row4_key: {
-            "type": "ROW",
-            "id": row4_key,
-            "children": [table_key],
-            "parents": ["ROOT_ID", "GRID_ID"],
-            "meta": {"background": "BACKGROUND_TRANSPARENT"},
-        },
-        table_key: {
-            "type": "CHART",
-            "id": table_key,
-            "children": [],
             "parents": ["ROOT_ID", "GRID_ID", row4_key],
             "meta": {
                 "width": 12,
-                "height": 60,
-                "chartId": table_chart_id,
-                "sliceName": TABLE_CHART_NAME,
+                "height": 50,
+                "chartId": bar_id,
+                "sliceName": BAR_CHART_NAME,
             },
         },
     }
 
 
+def _build_chart_configuration(
+    treemap_id: int,
+    summary_table_id: int,
+) -> dict[str, Any]:
+    """Configura el scope de charts que excluyen el filtro Nivel SCIAN.
+
+    El treemap y la tabla de resumen sectorial tienen adhoc_filter fijo
+    (nivel_scian = 'sector'), asi que deben excluir el filtro nativo de
+    nivel SCIAN para evitar conflictos.
+    """
+    f_nivel_scian_id = _stable_filter_id("nivel_scian")
+
+    config: dict[str, Any] = {}
+    for chart_id in (treemap_id, summary_table_id):
+        config[str(chart_id)] = {
+            "id": chart_id,
+            "crossFilters": {"scope": {"rootPath": ["ROOT_ID"], "excluded": []}},
+            "nativeFilters": {
+                f_nivel_scian_id: {
+                    "scope": {"rootPath": [], "excluded": []},
+                    "filterState": {"value": None},
+                },
+            },
+        }
+    return config
+
+
 def create_dashboard(
     client: SupersetClient,
-    dataset_id: int,
+    switchboard_ds_id: int,
     header_id: int,
     big_number_id: int,
     treemap_id: int,
+    summary_table_id: int,
+    detail_table_id: int,
     bar_id: int,
-    table_id: int,
 ) -> int:
-    position = _build_position_json(header_id, big_number_id, treemap_id, bar_id, table_id)
-    native_filters = _build_native_filters(dataset_id)
+    position = _build_position_json(header_id, big_number_id, treemap_id, summary_table_id, detail_table_id, bar_id)
+    native_filters = _build_native_filters(switchboard_ds_id)
+    chart_config = _build_chart_configuration(treemap_id, summary_table_id)
 
     json_metadata: dict[str, Any] = {
         "native_filter_configuration": native_filters,
-        "chart_configuration": {},
+        "chart_configuration": chart_config,
         "color_scheme": "",
         "label_colors": {},
         "shared_label_colors": {},
@@ -655,7 +747,7 @@ def create_dashboard(
     existing = find_existing(client, "/api/v1/dashboard/", "slug", DASHBOARD_SLUG)
     if existing:
         dash_id = existing
-        print(f"    Dashboard '{DASHBOARD_SLUG}' ya existe (id={dash_id}). Actualizando filtros...")
+        print(f"    Dashboard '{DASHBOARD_SLUG}' ya existe (id={dash_id}). Actualizando...")
     else:
         resp = client.post(
             "/api/v1/dashboard/",
@@ -703,24 +795,36 @@ def main() -> None:
         db_id = find_database_id(client)
         print(f"    Usando base de datos 'SIEEJ' (id={db_id}).")
 
-        print("\n==> Provisionando dataset...")
-        dataset_id = create_dataset(client, db_id)
+        print("\n==> Provisionando datasets...")
+        switchboard_ds_id = create_virtual_dataset(client, db_id)
 
         print("\n==> Provisionando charts...")
-        header_id = create_header_chart(client, dataset_id)
-        big_number_id = create_big_number_chart(client, dataset_id)
-        treemap_id = create_treemap_chart(client, dataset_id)
-        bar_id = create_bar_chart(client, dataset_id)
-        table_id = create_table_chart(client, dataset_id)
+        header_id = create_header_chart(client, switchboard_ds_id)
+        big_number_id = create_big_number_chart(client, switchboard_ds_id)
+        treemap_id = create_treemap_chart(client, switchboard_ds_id)
+        summary_table_id = create_summary_table_chart(client, switchboard_ds_id)
+        detail_table_id = create_detail_table_chart(client, switchboard_ds_id)
+        bar_id = create_bar_chart(client, switchboard_ds_id)
 
         print("\n==> Provisionando dashboard...")
-        dash_id = create_dashboard(client, dataset_id, header_id, big_number_id, treemap_id, bar_id, table_id)
+        dash_id = create_dashboard(
+            client,
+            switchboard_ds_id,
+            header_id,
+            big_number_id,
+            treemap_id,
+            summary_table_id,
+            detail_table_id,
+            bar_id,
+        )
 
         print(f"\n==> Listo! Dashboard: http://localhost:8088/superset/dashboard/{DASHBOARD_SLUG}/")
         print(
-            f"    IDs: database={db_id}, dataset={dataset_id}, header={header_id},"
+            f"    IDs: database={db_id},"
+            f" switchboard_ds={switchboard_ds_id}, header={header_id},"
             f" big_number={big_number_id}, treemap={treemap_id},"
-            f" bar={bar_id}, table={table_id}, dashboard={dash_id}"
+            f" summary_table={summary_table_id}, detail_table={detail_table_id},"
+            f" bar={bar_id}, dashboard={dash_id}"
         )
     finally:
         client.close()

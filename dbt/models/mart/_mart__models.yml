@@ -32,14 +32,33 @@ models:
                 to: ref('dim_entidades')
                 field: cve_ent
 
-  - name: dim_actividades_economicas
-    description: "Catálogo SCIAN con jerarquía padre para drill-down en BI"
+  - name: dim_scian
+    description: "Jerarquía SCIAN completa con navegación padre-hijo para drill-down en BI"
     columns:
       - name: codigo
         description: "Código SCIAN de la actividad"
         tests:
           - unique
           - not_null
+      - name: descripcion
+        description: "Descripción de la actividad económica"
+        tests:
+          - not_null
+      - name: nivel
+        description: "Nivel en la jerarquía: sector, subsector, rama, subrama, clase"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["sector", "subsector", "rama", "subrama", "clase"]
+      - name: codigo_padre
+        description: "Código del nivel superior (NULL para sectores)"
+      - name: codigo_sector
+        description: "Código del sector (maneja compuestos: 31-33, 48-49)"
+        tests:
+          - not_null
+      - name: descripcion_sector
+        description: "Descripción del sector para labels en BI"
 
   - name: dim_estratos
     description: "Estratos de tamaño empresarial (6 registros)"
@@ -73,44 +92,40 @@ models:
 
   # -- Hechos --
   - name: fct_censo_economico
-    description: "Censo Económico despivoteado — 15 indicadores clave con columnas legibles para BI. Grano: año × entidad × municipio × actividad × estrato × indicador"
+    description: >
+      Censo Económico pivotado con todos los niveles geográficos y SCIAN.
+      Los 98 indicadores permanecen como columnas para lectura columnar eficiente.
+      Grano: anio × nivel_geografico × cve_ent × cve_mun × codigo_actividad × id_estrato.
     columns:
-      - name: indicador
-        description: "Nombre del indicador (ej. ue, h001a, a111a)"
+      - name: censo_economico_sk
+        description: "Clave sustituta sobre el grano completo"
         tests:
-          - not_null
-          - relationships:
-              arguments:
-                to: ref('dim_ce_indicadores')
-                field: nombre_columna
-      - name: descripcion
-        description: "Descripción corta del indicador (ej. 'Producción bruta total')"
-        tests:
-          - not_null
-      - name: unidad
-        description: "Unidad de medida (ej. 'millones de pesos'), NULL para indicadores sin unidad"
-      - name: cve_ent
-        tests:
-          - not_null
-          - relationships:
-              arguments:
-                to: ref('dim_entidades')
-                field: cve_ent
-      - name: nombre_entidad
-        tests:
-          - not_null
-      - name: cve_mun
-        tests:
+          - unique
           - not_null
       - name: anio
         tests:
           - not_null
-      - name: valor
-        description: "Valor numérico del indicador"
+      - name: nivel_geografico
+        description: "Nivel geográfico: nacional, entidad o municipio"
         tests:
-          - not_null:
-              config:
-                severity: warn
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["nacional", "entidad", "municipio"]
+      - name: nivel_scian
+        description: "Nivel SCIAN: sector, subsector, rama, subrama, clase"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["sector", "subsector", "rama", "subrama", "clase"]
+      - name: codigo_sector
+        description: "Código del sector SCIAN (maneja compuestos: 31-33, 48-49)"
+        tests:
+          - not_null
+      - name: codigo_actividad
+        tests:
+          - not_null
 
   - name: fct_censo_poblacion_municipio
     description: "Censo de Población despivoteado a nivel municipio — 222 indicadores con columnas legibles para BI. Grano: año × entidad × municipio × indicador"

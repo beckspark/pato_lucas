@@ -2,12 +2,45 @@ version: 2
 
 models:
   - name: int_ce__datos
-    description: "Datos del Censo Económico filtrados a nivel municipio con clave sustituta"
+    description: >
+      Datos del Censo Económico con todos los niveles geográficos (nacional, entidad,
+      municipio) y jerarquía SCIAN denormalizada. Los 98 indicadores permanecen pivotados.
+      Grano: anio × nivel_geografico × cve_ent × cve_mun × codigo_actividad × id_estrato.
     columns:
       - name: censo_economico_sk
-        description: "Clave sustituta: anio × cve_ent × cve_mun × codigo_actividad × id_estrato"
+        description: "Clave sustituta sobre el grano completo"
         tests:
           - unique
+          - not_null
+      - name: nivel_geografico
+        description: "Nivel geográfico: nacional, entidad o municipio"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["nacional", "entidad", "municipio"]
+      - name: nivel_scian
+        description: "Nivel de la jerarquía SCIAN: sector, subsector, rama, subrama o clase"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["sector", "subsector", "rama", "subrama", "clase"]
+      - name: codigo_sector
+        description: "Código del sector SCIAN (maneja compuestos: 31-33, 48-49)"
+        tests:
+          - not_null
+      - name: codigo_subsector
+        description: "Código del subsector (NULL si nivel_scian = sector)"
+      - name: codigo_rama
+        description: "Código de rama (NULL si nivel_scian en sector/subsector)"
+      - name: codigo_subrama
+        description: "Código de subrama (NULL si nivel_scian en sector/subsector/rama)"
+      - name: anio
+        tests:
+          - not_null
+      - name: codigo_actividad
+        tests:
           - not_null
 
   - name: int_cp__datos_municipio

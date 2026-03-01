@@ -17,6 +17,7 @@ LANGUAGES = {
 # Habilitar filtros nativos en dashboards (6.0 no lo activa por defecto)
 FEATURE_FLAGS = {
     "DASHBOARD_NATIVE_FILTERS": True,
+    "ENABLE_TEMPLATE_PROCESSING": True,
 }
 
 # Metadata en SQLite (default, persistida en superset_home volume)
