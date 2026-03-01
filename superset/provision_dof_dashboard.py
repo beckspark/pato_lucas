@@ -39,6 +39,7 @@ HEADER_CHART_NAME = "DOF -- Titulo dinamico"
 TIPO_RAMO_CHART_NAME = "DOF -- Total por tipo de ramo"
 LINE_CHART_NAME = "DOF -- Serie mensual"
 BAR_CHART_NAME = "DOF -- Por estado"
+FONDO_CHART_NAME = "DOF -- Por fondo"
 DETAIL_TABLE_CHART_NAME = "DOF -- Detalle"
 
 
@@ -77,11 +78,16 @@ def _metric_sum_monto() -> dict[str, Any]:
 
 
 def create_header_chart(client: SupersetClient, dataset_id: int) -> int:
+    # Umbral data.[5] = 6+ filas → "Nacional". Hasta 5 estados se listan por nombre.
     template = (
         '<div style="padding:4px 0">'
         '<h2 style="margin:0">Asignaciones Federales (DOF)</h2>'
         '<h3 style="margin:0;color:#aaa">'
-        "{{#each data}}{{#unless @first}}, {{/unless}}{{anio}}{{/each}}"
+        "{{#if data.[5]}}"
+        "Nacional"
+        "{{else}}"
+        "{{#each data}}{{#unless @first}}, {{/unless}}{{nombre_entidad}}{{/each}}"
+        "{{/if}}"
         "</h3>"
         "</div>"
     )
@@ -89,7 +95,7 @@ def create_header_chart(client: SupersetClient, dataset_id: int) -> int:
         "datasource": f"{dataset_id}__table",
         "viz_type": "handlebars",
         "query_mode": "aggregate",
-        "groupby": ["anio"],
+        "groupby": ["nombre_entidad"],
         "metrics": [],
         "row_limit": 50,
         "order_desc": True,
@@ -175,6 +181,31 @@ def create_bar_chart(client: SupersetClient, dataset_id: int) -> int:
     return upsert_chart(client, BAR_CHART_NAME, dataset_id, viz, params)
 
 
+def create_fondo_chart(client: SupersetClient, dataset_id: int) -> int:
+    """Bar chart horizontal: SUM(monto) por fondo, coloreado por tipo_ramo."""
+    viz = "echarts_timeseries_bar"
+    params = {
+        "datasource": f"{dataset_id}__table",
+        "viz_type": viz,
+        "x_axis": "fondo",
+        "time_grain_sqla": "P1D",
+        "metrics": [_metric_sum_monto()],
+        "groupby": ["tipo_ramo"],
+        "order_desc": True,
+        "row_limit": 50,
+        "color_scheme": "supersetColors",
+        "show_legend": True,
+        "truncate_metric": True,
+        "show_empty_columns": False,
+        "y_axis_format": "$,.0f",
+        "rich_tooltip": True,
+        "tooltipTimeFormat": "smart_date",
+        "orientation": "horizontal",
+        "adhoc_filters": [],
+    }
+    return upsert_chart(client, FONDO_CHART_NAME, dataset_id, viz, params)
+
+
 def create_detail_table_chart(client: SupersetClient, dataset_id: int) -> int:
     params = {
         "datasource": f"{dataset_id}__table",
@@ -220,7 +251,6 @@ def _build_native_filters(ds_id: int) -> list[dict[str, Any]]:
             "nombre_entidad",
             ds_id,
             multi=True,
-            enable_empty=True,
             search_all=False,
             default_values=["Jalisco"],
         ),
@@ -250,6 +280,7 @@ def main() -> None:
         tipo_ramo_id = create_tipo_ramo_chart(client, ds_id)
         line_id = create_line_chart(client, ds_id)
         bar_id = create_bar_chart(client, ds_id)
+        fondo_id = create_fondo_chart(client, ds_id)
         detail_id = create_detail_table_chart(client, ds_id)
 
         print("\n==> Provisionando dashboard (DOF)...")
@@ -263,8 +294,11 @@ def main() -> None:
                     ("tipo_ramo", tipo_ramo_id, 4, 30, TIPO_RAMO_CHART_NAME),
                     ("line", line_id, 8, 30, LINE_CHART_NAME),
                 ],
-                # Fila 2: Por estado (12 col, h=50)
-                [("bar", bar_id, 12, 50, BAR_CHART_NAME)],
+                # Fila 2: Por estado (6 col) + Por fondo (6 col), h=50
+                [
+                    ("bar", bar_id, 6, 50, BAR_CHART_NAME),
+                    ("fondo", fondo_id, 6, 50, FONDO_CHART_NAME),
+                ],
                 # Fila 3: Detalle (12 col, h=50)
                 [("detail", detail_id, 12, 50, DETAIL_TABLE_CHART_NAME)],
             ],
@@ -277,8 +311,8 @@ def main() -> None:
             f"    IDs: database={db_id},"
             f" dataset={ds_id}, header={header_id},"
             f" tipo_ramo={tipo_ramo_id}, line={line_id},"
-            f" bar={bar_id}, detail={detail_id},"
-            f" dashboard={dash_id}"
+            f" bar={bar_id}, fondo={fondo_id},"
+            f" detail={detail_id}, dashboard={dash_id}"
         )
     finally:
         client.close()
