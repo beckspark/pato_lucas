@@ -81,7 +81,7 @@ def create_header_chart(client: SupersetClient, dataset_id: int) -> int:
         '<div style="padding:4px 0">'
         '<h2 style="margin:0">Asignaciones Federales (DOF)</h2>'
         '<h3 style="margin:0;color:#aaa">'
-        "Nacional — {{#each data}}{{#unless @first}}, {{/unless}}{{anio}}{{/each}}"
+        "{{#each data}}{{#unless @first}}, {{/unless}}{{anio}}{{/each}}"
         "</h3>"
         "</div>"
     )
@@ -222,7 +222,7 @@ def _build_native_filters(ds_id: int) -> list[dict[str, Any]]:
             multi=True,
             enable_empty=True,
             search_all=False,
-            # Sin default = vista nacional (todas las entidades)
+            default_values=["Jalisco"],
         ),
         # 3. Tipo de ramo
         build_filter(f_tipo_ramo_id, "Tipo de ramo", "tipo_ramo", ds_id, multi=True, search_all=False),
