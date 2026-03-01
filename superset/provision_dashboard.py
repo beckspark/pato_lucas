@@ -353,7 +353,7 @@ def create_summary_table_chart(client: SupersetClient, dataset_id: int) -> int:
         "datasource": f"{dataset_id}__table",
         "viz_type": "table",
         "query_mode": "aggregate",
-        "groupby": ["descripcion_sector", "descripcion_corta"],
+        "groupby": ["nivel_scian", "descripcion_sector", "descripcion_corta"],
         "metrics": [_metric_sum_valor()],
         "row_limit": 1000,
         "server_pagination": True,
@@ -371,7 +371,7 @@ def create_detail_table_chart(client: SupersetClient, dataset_id: int) -> int:
         "datasource": f"{dataset_id}__table",
         "viz_type": "table",
         "query_mode": "aggregate",
-        "groupby": ["descripcion_actividad", "descripcion_corta"],
+        "groupby": ["nivel_scian", "descripcion_actividad", "descripcion_corta"],
         "metrics": [_metric_sum_valor()],
         "row_limit": 1000,
         "server_pagination": True,
@@ -423,8 +423,14 @@ def _stable_filter_id(name: str) -> str:
 
 def _build_native_filters(
     switchboard_ds_id: int,
+    *,
+    excluir_nivel_scian: list[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Construye la configuracion de los 7 filtros nativos (sin estrato)."""
+    """Construye la configuracion de los 7 filtros nativos (sin estrato).
+
+    excluir_nivel_scian: IDs de charts que deben ignorar el filtro Nivel SCIAN
+    (treemap y resumen sectorial, que tienen adhoc_filter fijo a '1. Sector').
+    """
     f_anio_id = _stable_filter_id("anio")
     f_nivel_geo_id = _stable_filter_id("nivel_geografico")
     f_estado_id = _stable_filter_id("estado")
@@ -444,6 +450,7 @@ def _build_native_filters(
         enable_empty: bool = False,
         search_all: bool = True,
         default_values: list[Any] | None = None,
+        scope_excluded: list[int] | None = None,
     ) -> dict[str, Any]:
         if isinstance(cascade_from, list):
             parent_ids = cascade_from
@@ -460,7 +467,7 @@ def _build_native_filters(
             "targets": [{"datasetId": dataset_id, "column": {"name": column}}],
             "defaultDataMask": {"filterState": {}, "extraFormData": {}, "ownState": {}},
             "cascadeParentIds": parent_ids,
-            "scope": {"rootPath": ["ROOT_ID"], "excluded": []},
+            "scope": {"rootPath": ["ROOT_ID"], "excluded": scope_excluded or []},
             "controlValues": {
                 "enableEmptyFilter": enable_empty,
                 "defaultToFirstItem": False,
@@ -516,12 +523,14 @@ def _build_native_filters(
             default_values=["Clave de la unidad económica"],
         ),
         # 5. Nivel SCIAN (valores con prefijo numerico para orden correcto)
+        # Excluye treemap y resumen sectorial — tienen adhoc_filter fijo a '1. Sector'
         _filter(
             f_nivel_scian_id,
             "Nivel SCIAN",
             "nivel_scian",
             switchboard_ds_id,
             default_values=["1. Sector"],
+            scope_excluded=excluir_nivel_scian or [],
         ),
         # 6. Municipio (cascada desde Estado)
         _filter(
@@ -690,33 +699,6 @@ def _build_position_json(
     }
 
 
-def _build_chart_configuration(
-    treemap_id: int,
-    summary_table_id: int,
-) -> dict[str, Any]:
-    """Configura el scope de charts que excluyen el filtro Nivel SCIAN.
-
-    El treemap y la tabla de resumen sectorial tienen adhoc_filter fijo
-    (nivel_scian = 'sector'), asi que deben excluir el filtro nativo de
-    nivel SCIAN para evitar conflictos.
-    """
-    f_nivel_scian_id = _stable_filter_id("nivel_scian")
-
-    config: dict[str, Any] = {}
-    for chart_id in (treemap_id, summary_table_id):
-        config[str(chart_id)] = {
-            "id": chart_id,
-            "crossFilters": {"scope": {"rootPath": ["ROOT_ID"], "excluded": []}},
-            "nativeFilters": {
-                f_nivel_scian_id: {
-                    "scope": {"rootPath": [], "excluded": []},
-                    "filterState": {"value": None},
-                },
-            },
-        }
-    return config
-
-
 def create_dashboard(
     client: SupersetClient,
     switchboard_ds_id: int,
@@ -728,12 +710,14 @@ def create_dashboard(
     bar_id: int,
 ) -> int:
     position = _build_position_json(header_id, big_number_id, treemap_id, summary_table_id, detail_table_id, bar_id)
-    native_filters = _build_native_filters(switchboard_ds_id)
-    chart_config = _build_chart_configuration(treemap_id, summary_table_id)
+    native_filters = _build_native_filters(
+        switchboard_ds_id,
+        excluir_nivel_scian=[treemap_id, summary_table_id],
+    )
 
     json_metadata: dict[str, Any] = {
         "native_filter_configuration": native_filters,
-        "chart_configuration": chart_config,
+        "chart_configuration": {},
         "color_scheme": "",
         "label_colors": {},
         "shared_label_colors": {},
