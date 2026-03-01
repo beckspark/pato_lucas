@@ -11,7 +11,7 @@ services:
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
       - SUPERSET_ALLOWED_SCHEMAS=${SUPERSET_ALLOWED_SCHEMAS:-sieej.mart}
-    restart: unless-stopped
+    restart: "no"
 
 volumes:
   superset_home:
