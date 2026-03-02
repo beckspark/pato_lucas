@@ -1,10 +1,9 @@
 .PHONY: up down docs
 
-# Deteccion de puertos libres via python (pipe a python3 para preservar newlines)
-find_free_port = $(shell echo -e 'import socket\nfor p in range($(1),$(1)+100):\n try:\n  s=socket.socket();s.bind(("",p));s.close();print(p);break\n except OSError:pass' | python3)
-
-SUPERSET_PORT := $(call find_free_port,8089)
-DBT_DOCS_PORT := $(call find_free_port,8081)
+# Deteccion de puertos libres; sobreescribir con variables de entorno si se prefiere
+# Ejemplo: SUPERSET_PORT=9090 make up
+SUPERSET_PORT ?= $(shell python3 scripts/find_free_port.py 8089 2>/dev/null || echo 8089)
+DBT_DOCS_PORT ?= $(shell python3 scripts/find_free_port.py 8081 2>/dev/null || echo 8081)
 
 up:
 	@echo "==> dbt build..."

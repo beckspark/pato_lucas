@@ -51,6 +51,13 @@ Para correr todo de `dbt build` a hacer los dbt docs y el superset, puedes usar:
 make up
 ```
 
+Si el puerto 8089 u 8081 esta ocupado, se detecta automaticamente uno libre.
+Para forzar un puerto especifico:
+
+```bash
+SUPERSET_PORT=9090 make up
+```
+
 `make down` para desactivar el docker
 
 ## Fuentes de datos
