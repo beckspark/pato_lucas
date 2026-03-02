@@ -6,6 +6,7 @@ Pipeline de datos que transforma fuentes públicas (INEGI, DOF) en tablas analí
 
 - **[uv](https://docs.astral.sh/uv/getting-started/installation/)** — gestor de paquetes Python
 - **[Docker](https://docs.docker.com/get-started/get-docker/)** — para el servicio de Superset
+- `make` si quieres utilizar el `Makefile`
 
 ### Base de datos SIEEJ
 
@@ -15,9 +16,17 @@ https://drive.google.com/file/d/1ikx-WWrll02h91S6z8vjdSx77R_c4Wbn/view?usp=drive
 
 ### Instalación
 
+Para empezar:
 ```bash
 uv sync
 uv run pre-commit install
+```
+
+luego, hay dos opciones:
+
+#### Opcion 1 -- manual
+
+```bash
 cd dbt && uv run dbt deps && uv run dbt build
 ```
 
@@ -35,6 +44,15 @@ Acceder a http://localhost:8089 (usuario: `admin`, contraseña: `admin`).
 La conexión a DuckDB (base "SIEEJ") se registra automáticamente al arrancar.
 Las tablas mart están disponibles en SQL Lab bajo el schema `mart`.
 
+#### Opcion 2 -- con `make`
+Para correr todo de `dbt build` a hacer los dbt docs y el superset, puedes usar:
+
+```bash
+make up
+```
+
+`make down` para desactivar el docker
+
 ## Fuentes de datos
 
 ### Censo Económico (INEGI)
@@ -48,49 +66,3 @@ Datos del Censo de Población y Vivienda 2020 de INEGI. Contiene 222 indicadores
 ### Asignaciones Federales (DOF)
 
 Montos publicados en el Diario Oficial de la Federación para fondos federales asignados a entidades. Incluye desglose mensual por ramo, anexo y fondo.
-
-## Tablas de hechos
-
-Todas las tablas de hechos están en formato largo (despivoteado) con columnas legibles joinadas directamente — no requieren joins manuales para exploración BI.
-
-### `fct_censo_economico`
-
-15 indicadores clave despivoteados. Grano: año × entidad × municipio × actividad × estrato × indicador.
-
-Incluye: `nombre_entidad`, `nombre_municipio`, `descripcion_actividad`, `clasificador_actividad`, `descripcion_estrato`, `descripcion` (corta del indicador), `unidad` (ej. "millones de pesos").
-
-| Indicador | Descripción | Unidad |
-|-----------|-------------|--------|
-| a111a | Producción bruta total | millones de pesos |
-| a121a | Consumo intermedio | millones de pesos |
-| a131a | Valor agregado censal bruto | millones de pesos |
-| a211a | Inversión total | millones de pesos |
-| a221a | Formación bruta de capital fijo | millones de pesos |
-| a700a | Total de gastos | millones de pesos |
-| a800a | Total de ingresos | millones de pesos |
-| j000a | Total de remuneraciones | millones de pesos |
-| k000a | Total de gastos por consumo de bienes y servicios | millones de pesos |
-| h001a | Personal ocupado total | — |
-| h000a | Personal dependiente de la razón social total | — |
-| h010a | Personal remunerado total | — |
-| h020a | Personas propietarias, familiares y otro personal no remunerado total | — |
-| i000a | Personal no dependiente de la razón social total | — |
-| ue | Clave de la unidad económica | — |
-
-### `fct_censo_poblacion_municipio`
-
-222 indicadores demográficos despivoteados. Grano: año × entidad × municipio × indicador.
-
-Incluye: `nombre_entidad`, `nombre_municipio`, `descripcion`.
-
-### `fct_censo_poblacion_entidad`
-
-Mismos 222 indicadores a nivel entidad. Grano: año × entidad × indicador.
-
-Incluye: `nombre_entidad`, `descripcion`.
-
-### `fct_dof_asignaciones_mensuales`
-
-Asignaciones federales despivoteadas por mes. Grano: año × ramo × anexo × fondo × entidad × mes.
-
-Incluye: `mes_nombre`, `mes_numero` (1-12), `monto`.
