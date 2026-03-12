@@ -60,6 +60,20 @@ SUPERSET_PORT=9090 make up
 
 `make down` para desactivar el docker
 
+## Tutorial de dbt
+
+El directorio `notebook/` contiene un tutorial interactivo en Jupyter que enseña a construir un pipeline medallón dbt desde cero.
+
+```bash
+cd notebook
+jupyter notebook tutorial_dbt.ipynb
+```
+
+- **`datos_tutorial.duckdb`** — BD sintética pre-generada con datos del mismo dominio (CE + DOF), lista para usar
+- **`generar_datos.py`** — Script para regenerar la BD si se desea (`uv run python generar_datos.py`)
+- **`soluciones/`** — Proyecto dbt completo de referencia (54 tests)
+- El alumno construye su propio proyecto en `mi_proyecto_dbt/` durante los ejercicios
+
 ## Fuentes de datos
 
 ### Censo Económico (INEGI)

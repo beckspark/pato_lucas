@@ -1,0 +1,17 @@
+version: 2
+
+sources:
+  - name: tutorial
+    description: "Tablas crudas sintéticas para el tutorial de dbt"
+    schema: main
+    tables:
+      - name: ce_datos
+        description: "Microdatos del Censo Económico — tabla ancha con 10 indicadores por año × entidad × municipio × actividad"
+      - name: ce_catalogos_actividades
+        description: "Catálogo de actividades económicas SCIAN con jerarquía sector/subsector/rama"
+      - name: ce_catalogos_entidades_municipios
+        description: "Catálogo geográfico de 5 entidades y 15 municipios"
+      - name: ce_diccionarios_datos
+        description: "Diccionario de datos CE — descripciones de los 10 indicadores + filas de metadatos"
+      - name: dof_presupuesto
+        description: "Presupuesto federal DOF — asignaciones por entidad con desgloses mensuales"

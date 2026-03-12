@@ -1,0 +1,20 @@
+name: tutorial_dbt
+version: "0.1.0"
+config-version: 2
+profile: tutorial_dbt
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+
+models:
+  tutorial_dbt:
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+    mart:
+      +schema: mart
+      +materialized: table

@@ -1,0 +1,39 @@
+version: 2
+
+models:
+  - name: int_ce__datos
+    description: >
+      Datos del Censo Económico con jerarquía SCIAN denormalizada.
+      Grano: anio × nivel_geografico × cve_ent × cve_mun × codigo_actividad.
+    columns:
+      - name: censo_economico_sk
+        description: "Clave sustituta sobre el grano completo"
+        tests:
+          - unique
+          - not_null
+      - name: nivel_geografico
+        description: "Nivel geográfico: nacional, entidad o municipio"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["nacional", "entidad", "municipio"]
+      - name: nivel_scian
+        description: "Nivel SCIAN: sector, subsector o rama"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["sector", "subsector", "rama"]
+      - name: codigo_sector
+        description: "Código del sector SCIAN (maneja compuestos: 31-33)"
+        tests:
+          - not_null
+
+  - name: int_dof__presupuesto
+    description: "Presupuesto DOF filtrado: solo entidades válidas, sin totales ni consolidados"
+    columns:
+      - name: presupuesto_sk
+        description: "Clave sustituta: anio × ramo × anexo × fondo × cve_ent"
+        tests:
+          - not_null

@@ -12,6 +12,8 @@ wheels/
 # Data
 *.duckdb
 *.duckdb.wal
+# Excepción: BD sintética del tutorial (pre-generada, lista para usar)
+!notebook/datos_tutorial.duckdb
 
 # dbt
 dbt/target/
@@ -21,3 +23,10 @@ dbt/.user.yml
 
 # Superset
 superset_home/
+
+# Tutorial: proyecto del alumno y artefactos dbt
+notebook/mi_proyecto_dbt/
+notebook/soluciones/target/
+notebook/soluciones/dbt_packages/
+notebook/soluciones/logs/
+notebook/soluciones/.user.yml

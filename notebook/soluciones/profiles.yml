@@ -1,0 +1,8 @@
+tutorial_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "../datos_tutorial.duckdb"
+      schema: mart
+      threads: 1

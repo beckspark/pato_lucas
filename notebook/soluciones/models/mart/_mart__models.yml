@@ -1,0 +1,121 @@
+version: 2
+
+models:
+  # -- Dimensiones --
+  - name: dim_entidades
+    description: "Dimensión de 5 entidades federativas del tutorial"
+    columns:
+      - name: cve_ent
+        description: "Clave de entidad (2 caracteres)"
+        tests:
+          - unique
+          - not_null
+      - name: nombre_entidad
+        description: "Nombre oficial de la entidad"
+        tests:
+          - not_null
+
+  - name: dim_actividades_economicas
+    description: "Jerarquía SCIAN con navegación padre-hijo para drill-down"
+    columns:
+      - name: codigo
+        description: "Código SCIAN de la actividad"
+        tests:
+          - unique
+          - not_null
+      - name: descripcion
+        description: "Descripción de la actividad económica"
+        tests:
+          - not_null
+      - name: nivel
+        description: "Nivel en la jerarquía: sector, subsector, rama"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["sector", "subsector", "rama"]
+      - name: codigo_padre
+        description: "Código del nivel superior (NULL para sectores)"
+      - name: codigo_sector
+        description: "Código del sector (maneja compuesto: 31-33)"
+        tests:
+          - not_null
+
+  - name: dim_ce_indicadores
+    description: "Diccionario de indicadores del Censo Económico con bandera de indicador clave"
+    columns:
+      - name: nombre_columna
+        description: "Nombre del indicador (minúsculas)"
+        tests:
+          - unique
+          - not_null
+
+  # -- Hechos --
+  - name: fct_censo_economico
+    description: >
+      Censo Económico pivotado con todos los niveles geográficos y SCIAN.
+      Los 10 indicadores permanecen como columnas.
+      Grano: anio × nivel_geografico × cve_ent × cve_mun × codigo_actividad.
+    columns:
+      - name: censo_economico_sk
+        description: "Clave sustituta sobre el grano completo"
+        tests:
+          - unique
+          - not_null
+      - name: anio
+        tests:
+          - not_null
+      - name: nivel_geografico
+        description: "Nivel geográfico: nacional, entidad o municipio"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["nacional", "entidad", "municipio"]
+      - name: nivel_scian
+        description: "Nivel SCIAN: sector, subsector, rama"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["sector", "subsector", "rama"]
+      - name: codigo_actividad
+        tests:
+          - not_null
+
+  - name: fct_presupuesto_mensual
+    description: "Presupuesto federal despivoteado por mes. Grano: año × ramo × anexo × fondo × entidad × mes"
+    columns:
+      - name: mes_nombre
+        description: "Nombre del mes en español (enero-diciembre)"
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+                         'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+      - name: mes_numero
+        description: "Número del mes (1-12) para ordenamiento cronológico"
+        tests:
+          - not_null
+      - name: cve_ent
+        description: "Clave de entidad"
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_entidades')
+                field: cve_ent
+      - name: nombre_entidad
+        description: "Nombre de la entidad federativa"
+        tests:
+          - not_null
+      - name: anio
+        tests:
+          - not_null
+      - name: monto
+        description: "Monto asignado para el mes"
+        tests:
+          - not_null:
+              config:
+                severity: warn
